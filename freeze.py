@@ -10,7 +10,7 @@ import logging
 import smtplib
 import argparse
 import subprocess
-from settings import (sites, SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD,
+from settings import (sites, SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD, MYSQL_USER, MYSQL_PASSWORD,
                       EMAIL_SUBJECT_PREFIX, EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR, BASE_ARCHIVE_DIR)
 
 logger = logging.getLogger('mr_freeze')
@@ -69,9 +69,27 @@ def snapshot(interval, site):
         proc = subprocess.Popen([rsync_cmd], stdout=subprocess.PIPE, shell=True)
         (out, err) = proc.communicate()
         logger.info('rsync output: %s' % out)
-        end_time = time.time() - start_time
+
+        # Create a database snapshot
+        if 'sql_dump' in site[interval] and site[interval]['sql_dump']:
+
+            # Build the mysql command
+            mysql_cmd = "mysqldump -u '%s'" % MYSQL_USER
+
+            if MYSQL_PASSWORD:
+                mysql_cmd += " --password '%s'" % MYSQL_PASSWORD
+
+            mysql_cmd += " --databases '%s'" % site['db_name']
+
+            # gzip the results and plop the file right in the snapshot directory
+            mysql_cmd += " | gzip > '%s'" % os.path.join('%s.0' % target_path, '%s.sql.gz' % site['db_name'])
+
+            proc = subprocess.Popen([mysql_cmd], stdout=subprocess.PIPE, shell=True)
+            (out, err) = proc.communicate()
+            logger.info('mysqldump output: %s' % out)
 
         # Save this for the summary
+        end_time = time.time() - start_time
         site['snapshot_duration'] = end_time
 
         logger.info('snapshot of %s completed in %0.2f seconds' % (key, end_time))
@@ -82,6 +100,7 @@ def verify_config():
     Verify the configuration data.
     :return: Raises ValueError if a configuration element is missing or not configured correctly
     """
+
     if sites is None:
         raise ValueError("'sites' parameter not configured, or is empty.")
 
@@ -95,6 +114,11 @@ def verify_config():
             if interval in site:
                 if 'max_snaps' not in site[interval]:
                     raise ValueError('max_snaps not defined for %s: interval-%s' % (key, interval))
+
+                # Make sure the database is defined if sql_dump is set for this interval
+                if 'sql_dump' in site[interval]:
+                    if 'db_name' not in site:
+                        raise ValueError('sql_dump is set for %s and db_name not configured for %s' % (interval, key))
 
         # Verify src_dir exists
         if os.path.exists(site['src_dir']) is False:
@@ -113,6 +137,7 @@ def check_environment():
     """
     logger.info('environment check')
     logger.info('rsync version\n%s' % os.popen('rsync --version').read())
+    logger.info('mysqldump version\n%s' % os.popen('mysqldump --version').read())
 
 
 def send_email_summary(interval):
