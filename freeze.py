@@ -11,7 +11,7 @@ import smtplib
 import argparse
 import subprocess
 from settings import (sites, SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD,
-                      EMAIL_SUBJECT_PREFIX, EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR)
+                      EMAIL_SUBJECT_PREFIX, EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR, BASE_ARCHIVE_DIR)
 
 logger = logging.getLogger('mr_freeze')
 
@@ -50,14 +50,18 @@ def snapshot(interval, site):
         for x in reversed(range(0, len(dirs))):
             src_dir = target_path + '.%d' % x
             dst_dir = target_path + '.%d' % (x + 1)
+            logger.debug('rotating "%s" to "%s"' % (src_dir, dst_dir))
             os.system('mv "%s" "%s"' % (src_dir, dst_dir))
 
-        # Create the new snapshot directory
-        os.system('mkdir %s.0' % target_path)
+        # Re-glob the directories after the rotate
+        dirs = glob.glob(os.path.join(site['archive_dir'], interval) + '*')
 
         # Use the last snapshot as the hard-link src, if it exists.
         # If it doesn't exist, use the site's src_dir as the hard-link source
         link_dest = dirs[0] if len(dirs) else site['src_dir']
+
+        # Create the new snapshot directory
+        os.system('mkdir %s.0' % target_path)
 
         # Archive the source directory using rsync
         rsync_cmd = 'rsync -a --stats -h --delete --link-dest="%s" "%s" "%s.0"' % (link_dest, site['src_dir'], target_path)
@@ -81,7 +85,16 @@ def verify_config():
     if sites is None:
         raise ValueError("'sites' parameter not configured, or is empty.")
 
+    if os.path.exists(BASE_ARCHIVE_DIR) is False:
+        raise ValueError('BASE_ARCHIVE_DIR (%s) does not exist' % BASE_ARCHIVE_DIR)
+
     for (key, site) in sites.items():
+
+        # Verify the required keys are present for any configured intervals
+        for interval in ['hourly', 'daily', 'weekly', 'monthly']:
+            if interval in site:
+                if 'max_snaps' not in site[interval]:
+                    raise ValueError('max_snaps not defined for %s: interval-%s' % (key, interval))
 
         # Verify src_dir exists
         if os.path.exists(site['src_dir']) is False:
