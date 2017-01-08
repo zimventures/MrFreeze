@@ -4,28 +4,28 @@ Mr Freeze
 A simple Python-based backup script to make sure your websites are kept on ice (aka, backed up).
 """
 import os
+import imp
 import time
 import glob
 import logging
 import smtplib
 import argparse
 import subprocess
-from settings import (sites, SMTP_SERVER, SMTP_PORT, SMTP_LOGIN, SMTP_PASSWORD, MYSQL_USER, MYSQL_PASSWORD,
-                      EMAIL_SUBJECT_PREFIX, EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR, BASE_ARCHIVE_DIR)
 
 logger = logging.getLogger('mr_freeze')
 
 
-def snapshot(interval, site):
+def snapshot(interval, site, settings):
     """
     Performs archival of the elements defined in the sites dictionary
     :param interval: The frequency that this snapshot should be saved on [hourly, daily, weekly, monthly]
     :param site: Key name of a single site in the sites dictionary to run on. If None, run on all sites.
+    :param settings: The settings module
     :return: None
     """
 
     # Build a temporary dictionary containing either the target site, or point to all the sites.
-    site_list = {site: sites[site]} if site else sites
+    site_list = {site: settings.sites[site]} if site else settings.sites
 
     for (key, site) in site_list.items():
 
@@ -74,19 +74,20 @@ def snapshot(interval, site):
         if 'sql_dump' in site[interval] and site[interval]['sql_dump']:
 
             # Build the mysql command
-            mysql_cmd = "mysqldump -u '%s'" % MYSQL_USER
+            mysql_cmd = "mysqldump -u '%s'" % settings.MYSQL_USER
 
-            if MYSQL_PASSWORD:
-                mysql_cmd += " --password '%s'" % MYSQL_PASSWORD
+            if settings.MYSQL_PASSWORD:
+                mysql_cmd += " --password='%s'" % settings.MYSQL_PASSWORD
 
             mysql_cmd += " --databases '%s'" % site['db_name']
 
             # gzip the results and plop the file right in the snapshot directory
-            mysql_cmd += " | gzip > '%s'" % os.path.join('%s.0' % target_path, '%s.sql.gz' % site['db_name'])
+            sql_dump_file = os.path.join('%s.0' % target_path, '%s.sql.gz' % site['db_name'])
+            mysql_cmd += " | gzip > '%s'" % sql_dump_file
 
             proc = subprocess.Popen([mysql_cmd], stdout=subprocess.PIPE, shell=True)
-            (out, err) = proc.communicate()
-            logger.info('mysqldump output: %s' % out)
+            proc.communicate()
+            logger.info('mysqldump saved to "%s"' % sql_dump_file)
 
         # Save this for the summary
         end_time = time.time() - start_time
@@ -95,19 +96,20 @@ def snapshot(interval, site):
         logger.info('snapshot of %s completed in %0.2f seconds' % (key, end_time))
 
 
-def verify_config():
+def verify_config(settings):
     """
     Verify the configuration data.
+    :param settings: The settings module
     :return: Raises ValueError if a configuration element is missing or not configured correctly
     """
 
-    if sites is None:
+    if settings.sites is None:
         raise ValueError("'sites' parameter not configured, or is empty.")
 
-    if os.path.exists(BASE_ARCHIVE_DIR) is False:
-        raise ValueError('BASE_ARCHIVE_DIR (%s) does not exist' % BASE_ARCHIVE_DIR)
+    if os.path.exists(settings.BASE_ARCHIVE_DIR) is False:
+        raise ValueError('BASE_ARCHIVE_DIR (%s) does not exist' % settings.BASE_ARCHIVE_DIR)
 
-    for (key, site) in sites.items():
+    for (key, site) in settings.sites.items():
 
         # Verify the required keys are present for any configured intervals
         for interval in ['hourly', 'daily', 'weekly', 'monthly']:
@@ -140,24 +142,26 @@ def check_environment():
     logger.info('mysqldump version\n%s' % os.popen('mysqldump --version').read())
 
 
-def send_email_summary(interval):
+def send_email_summary(interval, settings):
     """
     Send an email summary of the snapshot
     :param interval: The type of interval that was snapped
+    :param settings: The settings module
     :return: None
     """
-    logger.info('sending email summary to %s' % EMAIL_DEST_ADDR)
-    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+    logger.info('sending email summary to %s' % settings.EMAIL_DEST_ADDR)
+    server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
     server.starttls()
-    server.login(SMTP_LOGIN, SMTP_PASSWORD)
+    server.login(settings.SMTP_LOGIN, settings.SMTP_PASSWORD)
 
     # Build the subject
-    subject = '%s %s backup summary' % (EMAIL_SUBJECT_PREFIX, interval)
+    subject = '%s %s backup summary' % (settings.EMAIL_SUBJECT_PREFIX, interval)
 
     # Build a summary
     summary = '%-30s %-20s\n' % ('site name', 'duration (seconds)')
-    for (key, site) in sites.items():
-        summary += '%-30s %-20.2f\n' % (key, site['snapshot_duration'])
+    for (key, site) in settings.sites.items():
+        if 'snapshot_duration' in site:
+            summary += '%-30s %-20.2f\n' % (key, site['snapshot_duration'])
     summary += '\n'
 
     msg = """From: <%s>
@@ -171,9 +175,9 @@ Summary
 Log Output
 
 %s
-""" % (EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR, subject, summary, open('last_run.log', 'r').read())
+""" % (settings.EMAIL_SOURCE_ADDR, settings.EMAIL_DEST_ADDR, subject, summary, open('last_run.log', 'r').read())
 
-    server.sendmail(EMAIL_SOURCE_ADDR, EMAIL_DEST_ADDR, msg)
+    server.sendmail(settings.EMAIL_SOURCE_ADDR, settings.EMAIL_DEST_ADDR, msg)
     server.quit()
 
 
@@ -190,14 +194,19 @@ def main():
                         help='The desired logging level', dest='log_level')
     parser.add_argument('--verify', help='Only run verification check', default=False, action='store_true')
     parser.add_argument('--email', help='Send a summary email', default=False, action='store_true')
+    parser.add_argument('--settings', help='Path to settings file', dest='settings')
     parser.add_argument('--site', dest='site',
-                        choices=[key for (key, site) in sites.items()],
                         help='Only run the snapshot on the specified site')
+
     parser.add_argument('--interval', dest='interval', default='hourly',
                         choices=['hourly', 'daily', 'weekly', 'monthly'],
                         help='The time interval for this snapshot')
 
     args = vars(parser.parse_args())
+
+    # Import settings
+    settings_file = args['settings'] if args['settings'] else 'settings.py'
+    settings = imp.load_source('*', settings_file)
 
     # Set the log level (defaults to INFO)
     log_level = logging.INFO
@@ -217,16 +226,16 @@ def main():
     check_environment()
 
     try:
-        verify_config()
+        verify_config(settings=settings)
     except ValueError, e:
         logger.fatal(e)
         exit(1)
 
     if args['verify'] is False:
-        snapshot(interval=args['interval'], site=args['site'])
+        snapshot(interval=args['interval'], site=args['site'], settings=settings)
 
     if args['email']:
-        send_email_summary(interval=args['interval'])
+        send_email_summary(interval=args['interval'], settings=settings)
 
 if __name__ == '__main__':
     main()
