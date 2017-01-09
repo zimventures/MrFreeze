@@ -4,6 +4,9 @@ A Python based backup utility
 So, you manage a server with some websites. Looking for an easy solution to implement snapshots for those sites?
 You've come to the right place, partner. Saddle up...let's go for a ride.
 
+#### Disclaimer
+Testing is EXTREMELY LIMITED (aka I've only done some basic testing on my local boxes) so I suggest waiting until the first release before putting it into any mission critical stuff.  There's no warantee on this bag of code! 
+
 ## Features
  - Creates snapshots (hourly, daily, weekly, monthly)
  - Archives MySQL database inside snapshot
@@ -77,4 +80,6 @@ The first line will run the hourly snapshots every four hours. The second will r
 00 */4 * * * python /root/MrFreeze/freeze.py --log_level DEBUG --interval hourly --email --settings /root/MrFreeze/zim_settings.py
 30 00 * * * python /root/MrFreeze/freeze.py --log_level DEBUG --interval daily --email --settings /root/MrFreeze/zim_settings.py
 ```
+
+### Credits
 Kudos to [Mike Rubel](http://www.mikerubel.org/computers/rsync_snapshots/#Extensions) for his fantastic writeup on using rsync with hardlinks!
