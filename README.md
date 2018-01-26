@@ -5,7 +5,7 @@ So, you manage a server with some websites. Looking for an easy solution to impl
 You've come to the right place, partner. Saddle up...let's go for a ride.
 
 #### Disclaimer
-Testing is EXTREMELY LIMITED (aka I've only done some basic testing on my local boxes) so I suggest waiting until the first release before putting it into any mission critical stuff.  There's no warantee on this bag of code! 
+Testing is EXTREMELY LIMITED (aka I've only done some basic testing on my local boxes) so I suggest waiting until the first release before putting it into any mission critical stuff.  There's no warranty on this bag of code! 
 
 ## Features
  - Creates snapshots (hourly, daily, weekly, monthly)
