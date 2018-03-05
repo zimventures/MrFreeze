@@ -118,7 +118,7 @@ def verify_config(settings):
                     raise ValueError('max_snaps not defined for %s: interval-%s' % (key, interval))
 
                 # Make sure the database is defined if sql_dump is set for this interval
-                if 'sql_dump' in site[interval]:
+                if 'sql_dump' in site[interval] and site[interval]['sql_dump'] is True:
                     if 'db_name' not in site:
                         raise ValueError('sql_dump is set for %s and db_name not configured for %s' % (interval, key))
 
