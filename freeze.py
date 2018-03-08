@@ -56,19 +56,20 @@ def snapshot(interval, site, settings):
         # Re-glob the directories after the rotate
         dirs = glob.glob(os.path.join(site['archive_dir'], interval) + '*')
 
-        # Use the last snapshot as the hard-link src, if it exists.
-        # If it doesn't exist, use the site's src_dir as the hard-link source
-        link_dest = dirs[0] if len(dirs) else site['src_dir']
-
         # Create the new snapshot directory
         os.system('mkdir %s.0' % target_path)
 
-        # Archive the source directory using rsync
-        rsync_cmd = 'rsync -a --stats -h --delete --link-dest="%s" "%s" "%s.0"' % (link_dest, site['src_dir'], target_path)
-        logger.info(rsync_cmd)
-        proc = subprocess.Popen([rsync_cmd], stdout=subprocess.PIPE, shell=True)
-        (out, err) = proc.communicate()
-        logger.info('rsync output: %s' % out)
+        # Archive the source directory using rsync if this isn't the mysql backup
+        if key != 'mysql':
+            # Use the last snapshot as the hard-link src, if it exists.
+            # If it doesn't exist, use the site's src_dir as the hard-link source
+            link_dest = dirs[0] if len(dirs) else site['src_dir']
+
+            rsync_cmd = 'rsync -a --stats -h --delete --link-dest="%s" "%s" "%s.0"' % (link_dest, site['src_dir'], target_path)
+            logger.info(rsync_cmd)
+            proc = subprocess.Popen([rsync_cmd], stdout=subprocess.PIPE, shell=True)
+            (out, err) = proc.communicate()
+            logger.info('rsync output: %s' % out)
 
         # Create a database snapshot
         if 'sql_dump' in site[interval] and site[interval]['sql_dump']:
@@ -76,13 +77,24 @@ def snapshot(interval, site, settings):
             # Build the mysql command
             mysql_cmd = "mysqldump -u '%s'" % settings.MYSQL_USER
 
+            # Make sure the DB is properly locked
+            mysql_cmd += " --single-transaction"
+
             if settings.MYSQL_PASSWORD:
                 mysql_cmd += " --password='%s'" % settings.MYSQL_PASSWORD
 
-            mysql_cmd += " --databases '%s'" % site['db_name']
+            # Export all DB's or just the site's?
+            if key == 'mysql':
+                mysql_cmd += ' --all-databases'
+            else:
+                mysql_cmd += " --databases '%s'" % site['db_name']
 
             # gzip the results and plop the file right in the snapshot directory
-            sql_dump_file = os.path.join('%s.0' % target_path, '%s.sql.gz' % site['db_name'])
+            if key != 'mysql':
+                sql_dump_file = os.path.join('%s.0' % target_path, '%s.sql.gz' % site['db_name'])
+            else:
+                sql_dump_file = os.path.join('%s.0' % target_path, 'all-databases.sql.gz')
+
             mysql_cmd += " | gzip > '%s'" % sql_dump_file
 
             proc = subprocess.Popen([mysql_cmd], stdout=subprocess.PIPE, shell=True)
@@ -118,12 +130,12 @@ def verify_config(settings):
                     raise ValueError('max_snaps not defined for %s: interval-%s' % (key, interval))
 
                 # Make sure the database is defined if sql_dump is set for this interval
-                if 'sql_dump' in site[interval] and site[interval]['sql_dump'] is True:
+                if 'sql_dump' in site[interval] and site[interval]['sql_dump'] is True and key != 'mysql':
                     if 'db_name' not in site:
                         raise ValueError('sql_dump is set for %s and db_name not configured for %s' % (interval, key))
 
         # Verify src_dir exists
-        if os.path.exists(site['src_dir']) is False:
+        if key != 'mysql' and os.path.exists(site['src_dir']) is False:
             raise ValueError('%s: src_dir (%s) does not exist' % (key, site['src_dir']))
 
         # If archive_dir doesn't exist, create it
@@ -214,7 +226,7 @@ def main():
         log_level = getattr(logging, args['log_level'], None)
 
         if log_level is None:
-            print "*** ERROR: Invalid log level (%s) specified" % args['log_level']
+            print("*** ERROR: Invalid log level (%s) specified" % args['log_level'])
             exit(1)
     logging.basicConfig(level=log_level)
     fh = logging.FileHandler('last_run.log', mode='w')
@@ -227,7 +239,7 @@ def main():
 
     try:
         verify_config(settings=settings)
-    except ValueError, e:
+    except ValueError as e:
         logger.fatal(e)
         exit(1)
 
