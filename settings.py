@@ -38,3 +38,9 @@ SMTP_PASSWORD = 'mypassword'
 EMAIL_SUBJECT_PREFIX = '[mr_freeze]'
 EMAIL_SOURCE_ADDR = 'no-reply@yourdomain.com'
 EMAIL_DEST_ADDR = 'freeze@yourdomain.com'
+
+EMAIL_NOTIFY['hourly'] = False
+EMAIL_NOTIFY['daily'] = True
+EMAIL_NOTIFY['weekly'] = True
+EMAIL_NOTIFY['monthly'] = True
+
