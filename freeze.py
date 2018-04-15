@@ -161,6 +161,11 @@ def send_email_summary(interval, settings):
     :param settings: The settings module
     :return: None
     """
+
+    # Make sure we should even send this email, based on the timing interval
+    if interval in settings.EMAIL_NOTIFY and settings.EMAIL_NOTIFY[interval] is False:
+        return
+    
     logger.info('sending email summary to %s' % settings.EMAIL_DEST_ADDR)
     server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
     server.starttls()
